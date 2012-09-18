@@ -1,11 +1,46 @@
+/*jslint nomen: true, sloppy : true, plusplus: true, vars: true, newcap: true*/
 var joliCreator = function() {
+    var db = require('db');
+    var keychain = require('com.0x82.key.chain');
+    /**
+     * creates a secure password for the database and stores it in the keystore
+     */
+    var password = ( function() {
+            get = function(database) {
+                var password;
+                if (database) {
+                    password = keychain.getPasswordForService('database', database) || set(database);
+                    if(password) {
+                    return password;
+                    }
+                }
+                return undefined;
+            };
+            set = function(database) {
+                var password, uuid;
+                if (database) {
+                    password = keychain.getPasswordForService('database', database);
+                    if (!password) {
+                        uuid = Titanium.Platform.createUUID() || "DEFAULT";
+                        keychain.setPasswordForService(uuid, 'database', database);
+                        password = uuid;
+                    }
+                    return uuid;
+                }
+                return undefined;
+            };
+            return {
+                get : get,
+                set : set
+            };
+        }());
     var joli = {
-        each: function(collection, iterator, bind) {
+        each : function(collection, iterator, bind) {
             var i, l, property;
 
             switch (joli.getType(collection)) {
                 case "array":
-                    for (i = 0, l = collection.length; i < l; i++) {
+                    for ( i = 0, l = collection.length; i < l; i++) {
                         iterator.call(bind, collection[i], i);
                     }
                     break;
@@ -18,7 +53,7 @@ var joliCreator = function() {
                     break;
             }
         },
-        extend: function(baseClass, options) {
+        extend : function(baseClass, options) {
             var opt, prop;
 
             if (!this.options) {
@@ -36,8 +71,8 @@ var joliCreator = function() {
                 this.options[opt] = this.options[opt] || this.parent.options[opt];
             }
         },
-        getType: function(obj) {
-            if (typeof obj === "undefined" || obj === null || (typeof obj === "number" && isNaN(obj))) {
+        getType : function(obj) {
+            if ( typeof obj === "undefined" || obj === null || ( typeof obj === "number" && isNaN(obj))) {
                 return false;
             } else if (obj.constructor === Array || (Array.isArray && Array.isArray(obj))) {
                 return "array";
@@ -45,14 +80,14 @@ var joliCreator = function() {
                 return typeof obj;
             }
         },
-        jsonParse: function(json) {
+        jsonParse : function(json) {
             return JSON.parse(json);
         },
-        merge: function() {
+        merge : function() {
             var i, l, prop;
             var mergedObject = {};
 
-            for (i = 0, l = arguments.length; i < l; i++) {
+            for ( i = 0, l = arguments.length; i < l; i++) {
                 var object = arguments[i];
 
                 if (joli.getType(object) !== "object") {
@@ -73,7 +108,7 @@ var joliCreator = function() {
             }
             return mergedObject;
         },
-        setOptions: function(options, defaults) {
+        setOptions : function(options, defaults) {
             var opt;
 
             if (!options) {
@@ -90,7 +125,7 @@ var joliCreator = function() {
                 this.options[opt] = mergedOptions[opt];
             }
         },
-        toQueryString: function(obj) {
+        toQueryString : function(obj) {
             var queryStringComponents = [];
 
             if (!obj) {
@@ -117,7 +152,7 @@ var joliCreator = function() {
             });
             return '[' + queryStringComponents.join("&") + ']';
         },
-        typeValue: function(val) {
+        typeValue : function(val) {
             if (!joli.getType(val)) {
                 return "NULL";
             } else {
@@ -149,23 +184,53 @@ var joliCreator = function() {
         this.dbname = database;
 
         if (file) {
-          this.database = Titanium.Database.install(file, this.dbname);
+            this.database = Titanium.Database.install(file, this.dbname);
         } else {
-          this.database = Titanium.Database.open(this.dbname);
+            this.database = Titanium.Database.open(this.dbname);
         }
 
         this.database.execute('PRAGMA read_uncommitted=true');
     };
 
     joli.Connection.prototype = {
-        disconnect: function() {
+        disconnect : function() {
             this.database.close();
         },
-        execute: function(query) {
+        execute : function(query) {
             // Titanium.API.log('info', query);
             return this.database.execute(query);
         },
-        lastInsertRowId: function() {
+        lastInsertRowId : function() {
+            return this.database.lastInsertRowId;
+        }
+    };
+
+    /**
+     * Secure Connection Added by Paul Ryan
+     */
+    joli.SecureConnection = function(database) {
+        try {
+            var pass = password.get(database);
+            //TODO comment this out for live!!!
+            Ti.API.debug(pass);
+            this.dbname = database;
+            this.database = db.openDB(this.dbname, pass);
+            this.database.execute('PRAGMA read_uncommitted=true');
+        } catch (ex) {
+            var msg = ex.message || ex;
+            Ti.API.error(msg);
+        }
+    };
+
+    joli.SecureConnection.prototype = {
+        disconnect : function() {
+            this.database.close();
+        },
+        execute : function(query) {
+            // Titanium.API.log('info', query);
+            return this.database.execute(query);
+        },
+        lastInsertRowId : function() {
             return this.database.lastInsertRowId;
         }
     };
@@ -175,7 +240,7 @@ var joliCreator = function() {
      */
     joli.migration = function(options) {
         var defaults = {
-            tableName: 'migration'
+            tableName : 'migration'
         };
 
         joli.setOptions.call(this, options, defaults);
@@ -183,7 +248,7 @@ var joliCreator = function() {
     };
 
     joli.migration.prototype = {
-        getVersion: function() {
+        getVersion : function() {
             var q = new joli.query().select().from(this.table).order('version desc');
             var version = q.execute();
 
@@ -191,15 +256,15 @@ var joliCreator = function() {
                 return version[0].version;
             } else {
                 q = new joli.query().insertInto(this.table).values({
-                    version: 0
+                    version : 0
                 });
                 q.execute();
                 return 0;
             }
         },
-        setVersion: function(version) {
+        setVersion : function(version) {
             var q = new joli.query().update(this.table).set({
-                version: version
+                version : version
             });
             q.execute();
         }
@@ -210,9 +275,9 @@ var joliCreator = function() {
      */
     joli.model = function(options) {
         var defaults = {
-            table: '',
-            columns: {},
-            objectMethods: {}
+            table : '',
+            columns : {},
+            objectMethods : {}
         };
 
         if (options.methods) {
@@ -230,7 +295,7 @@ var joliCreator = function() {
     };
 
     joli.model.prototype = {
-        all: function(constraints) {
+        all : function(constraints) {
             var q = new joli.query().select().from(this.table);
 
             if (!constraints) {
@@ -253,7 +318,7 @@ var joliCreator = function() {
 
             return q.execute();
         },
-        count: function(constraints) {
+        count : function(constraints) {
             var q = new joli.query().count().from(this.table);
 
             if (!constraints) {
@@ -269,7 +334,7 @@ var joliCreator = function() {
             return parseInt(q.execute(), 10);
         },
         // no callbacks, more efficient
-        deleteRecords: function(id) {
+        deleteRecords : function(id) {
             var q = new joli.query().destroy().from(this.table);
 
             if (joli.getType(id) === 'number') {
@@ -280,17 +345,17 @@ var joliCreator = function() {
 
             return q.execute();
         },
-        exists: function(id) {
+        exists : function(id) {
             var count = new joli.query().count().from(this.table).where('id = ?', id).execute();
             return (count > 0);
         },
-        findBy: function(field, value) {
+        findBy : function(field, value) {
             return new joli.query().select().from(this.table).where(field + ' = ?', value).execute();
         },
-        findById: function(value) {
+        findById : function(value) {
             return this.findBy('id', value);
         },
-        findOneBy: function(field, value) {
+        findOneBy : function(field, value) {
             var result = new joli.query().select().from(this.table).where(field + ' = ?', value).limit(1).execute();
 
             if (result.length === 0) {
@@ -299,13 +364,13 @@ var joliCreator = function() {
                 return result[0];
             }
         },
-        findOneById: function(value) {
+        findOneById : function(value) {
             return this.findOneBy('id', value);
         },
-        getColumns: function() {
+        getColumns : function() {
             return this.options.columns;
         },
-        newRecord: function(values) {
+        newRecord : function(values) {
             if (!values) {
                 values = {};
             }
@@ -329,7 +394,7 @@ var joliCreator = function() {
 
             return record;
         },
-        save: function(data) {
+        save : function(data) {
             if (data.data.length === 0) {
                 return;
             }
@@ -346,7 +411,7 @@ var joliCreator = function() {
 
             return q.execute();
         },
-        truncate: function() {
+        truncate : function() {
             new joli.query().destroy().from(this.table).execute();
         }
     };
@@ -354,26 +419,26 @@ var joliCreator = function() {
     joli.Models = function() {
         this.models = {};
         this.migration = new joli.migration({
-            tableName: 'migration'
+            tableName : 'migration'
         });
     };
 
     joli.Models.prototype = {
-        get: function(table) {
+        get : function(table) {
             if (table !== undefined) {
                 return this.models[table];
             } else {
                 return this.models;
             }
         },
-        has: function(table) {
+        has : function(table) {
             if (this.models[table]) {
                 return true;
             } else {
                 return false;
             }
         },
-        initialize: function() {
+        initialize : function() {
             joli.each(this.models, function(model, modelName) {
                 var columns = [];
 
@@ -384,7 +449,7 @@ var joliCreator = function() {
                 joli.connection.execute(query);
             });
         },
-        migrate: function(version, migrationCallback) {
+        migrate : function(version, migrationCallback) {
             // create migration table
             var query = 'CREATE TABLE IF NOT EXISTS ' + this.migration.table + ' (version)';
             joli.connection.execute(query);
@@ -397,8 +462,8 @@ var joliCreator = function() {
                 // optional migration callback
                 if (migrationCallback && 'function' === joli.getType(migrationCallback)) {
                     migrationCallback({
-                        table: this.migration.table,
-                        newVersion: version
+                        table : this.migration.table,
+                        newVersion : version
                     });
                 }
 
@@ -406,7 +471,7 @@ var joliCreator = function() {
                 this.migration.setVersion(version);
             }
         },
-        set: function(table, model) {
+        set : function(table, model) {
             this.models[table] = model;
         }
     };
@@ -415,33 +480,52 @@ var joliCreator = function() {
 
     joli.query = function() {
         this.data = {
-            as: null,
-            from: null,
-            having: null,
-            join: [],
-            limit: null,
-            operation: null,
-            order: [],
-            select_columns: '*',
-            set: [],
-            values: [],
-            where: null
+            as : null,
+            from : null,
+            having : null,
+            join : [],
+            limit : null,
+            operation : null,
+            order : [],
+            select_columns : '*',
+            set : [],
+            values : [],
+            where : null
         };
     };
 
     joli.query.prototype = {
-        count: function() {
+        /*
+         * alterTable, column, column_def and to added by Paul Ryan 26/7/12 to support alter database commands in Joli
+         */
+        alterTable : function(type) {
+            if (type === 'rename') {
+                this.data.operation = 'alter_table_rename';
+            } else {
+                this.data.operation = 'alter_table_add';
+            }
+            return this;
+        },
+        column : function(column) {
+            this.data.column = column;
+            return this;
+        },
+        column_def : function(column_def) {
+            this.data.column_def = column_def;
+            return this;
+        },
+        count : function() {
             this.data.operation = 'count';
             return this;
         },
-        destroy: function() {
+        destroy : function() {
             this.data.operation = 'delete';
             return this;
         },
-        execute: function(hydratationMode) {
+        execute : function(hydratationMode) {
             return this.executeQuery(this.getQuery(), hydratationMode);
         },
-        executeQuery: function(query, hydratationMode) {
+        executeQuery : function(query, hydratationMode) {
             var rows;
 
             switch (this.data.operation) {
@@ -452,7 +536,7 @@ var joliCreator = function() {
                     joli.connection.execute(query);
                     return joli.connection.lastInsertRowId();
                 case 'select':
-                    if (typeof hydratationMode === 'undefined') {
+                    if ( typeof hydratationMode === 'undefined') {
                         hydratationMode = 'object';
                     }
                     rows = joli.connection.execute(query);
@@ -461,15 +545,15 @@ var joliCreator = function() {
                     return joli.connection.execute(query);
             }
         },
-        from: function(table) {
+        from : function(table) {
             this.data.from = table;
             return this;
         },
-        as: function(table) {
+        as : function(table) {
             this.data.as = table;
             return this;
         },
-        getCount: function(rows) {
+        getCount : function(rows) {
             var result;
 
             if (null === rows) {
@@ -485,8 +569,15 @@ var joliCreator = function() {
             rows.close();
             return result;
         },
-        getOperation: function() {
+        getOperation : function() {
             switch (this.data.operation) {
+                /*
+                 * alter table added by Paul Ryan 26/7/12
+                 */
+                case 'alter_table_add':
+                    return 'alter table ' + this.data.from + ' add ' + this.data.column + ' \'' + this.data.column_def + '\'';
+                case 'alter_table_rename':
+                    return 'alter table ' + this.data.from + ' rename to ' + this.data.to;
                 case 'count':
                     return 'select count(*) as total from ' + this.data.from;
                 case 'delete':
@@ -512,7 +603,7 @@ var joliCreator = function() {
                     throw ("Operation type Error. joli.query operation type must be an insert, a delete, a select or an update.");
             }
         },
-        getQuery: function() {
+        getQuery : function() {
             var query = this.getOperation();
 
             if (this.data.where) {
@@ -537,7 +628,7 @@ var joliCreator = function() {
 
             return query;
         },
-        groupBy: function(group) {
+        groupBy : function(group) {
             if ('string' === joli.getType(group)) {
                 group = [group];
             }
@@ -545,7 +636,7 @@ var joliCreator = function() {
             this.data.groupBy = group;
             return this;
         },
-        having: function(expression, value) {
+        having : function(expression, value) {
             if (null !== this.data.having) {
                 this.data.having += ' and ';
             } else {
@@ -569,7 +660,7 @@ var joliCreator = function() {
 
             return this;
         },
-        hydrate: function(rows, hydratationMode) {
+        hydrate : function(rows, hydratationMode) {
             var result = [];
 
             if (null === hydratationMode) {
@@ -602,7 +693,7 @@ var joliCreator = function() {
             rows.close();
             return result;
         },
-        hydrateArray: function(rows, fieldCount) {
+        hydrateArray : function(rows, fieldCount) {
             var result = [];
             var i;
             var rowData;
@@ -622,7 +713,7 @@ var joliCreator = function() {
 
             return result;
         },
-        hydrateObject: function(rows, fieldCount) {
+        hydrateObject : function(rows, fieldCount) {
             var result = [];
             var i;
             var record;
@@ -646,20 +737,20 @@ var joliCreator = function() {
 
             return result;
         },
-        insertInto: function(table) {
+        insertInto : function(table) {
             this.data.operation = 'insert_into';
             this.data.from = table;
             return this;
         },
-        join: function(table, local_id, foreign_id) {
+        join : function(table, local_id, foreign_id) {
             this.data.join.push([table, local_id, foreign_id]);
             return this;
         },
-        limit: function(limit) {
+        limit : function(limit) {
             this.data.limit = limit;
             return this;
         },
-        order: function(order) {
+        order : function(order) {
             if ('string' === joli.getType(order)) {
                 order = [order];
             }
@@ -667,7 +758,7 @@ var joliCreator = function() {
             this.data.order = order;
             return this;
         },
-        select: function(columns) {
+        select : function(columns) {
             this.data.operation = 'select';
 
             if (columns) {
@@ -676,7 +767,7 @@ var joliCreator = function() {
 
             return this;
         },
-        set: function(values) {
+        set : function(values) {
             joli.each(values, function(expression, value) {
                 if (-1 === value.indexOf('=')) {
                     this.data.set.push(value + ' = ' + joli.typeValue(expression));
@@ -687,19 +778,19 @@ var joliCreator = function() {
             }, this);
             return this;
         },
-        update: function(table) {
+        update : function(table) {
             this.data.operation = 'update';
             this.data.from = table;
             return this;
         },
-        values: function(values) {
+        values : function(values) {
             joli.each(values, function(expression, value) {
                 this.data.set.push(value);
                 this.data.values.push(joli.typeValue(expression));
             }, this);
             return this;
         },
-        where: function(expression, value) {
+        where : function(expression, value) {
             if (null !== this.data.where) {
                 this.data.where += ' and ';
             } else {
@@ -723,7 +814,7 @@ var joliCreator = function() {
 
             return this;
         },
-        whereIn: function(expression, value) {
+        whereIn : function(expression, value) {
             if (null !== this.data.where) {
                 this.data.where += ' and ';
             } else {
@@ -744,23 +835,23 @@ var joliCreator = function() {
 
     joli.record = function(table) {
         this._options = {
-            table: table
+            table : table
         };
         this._data = {};
     };
 
     joli.record.prototype = {
-        destroy: function() {
-            if (typeof this.id === 'undefined') {
+        destroy : function() {
+            if ( typeof this.id === 'undefined') {
                 throw ("Unsaved record cannot be destroyed");
             } else {
                 this._options.table.deleteRecords(this.id);
             }
         },
-        fromArray: function(data) {
-            if (typeof data.id !== 'undefined') {
+        fromArray : function(data) {
+            if ( typeof data.id !== 'undefined') {
                 this._originalData = {
-                    id: data.id
+                    id : data.id
                 };
                 this.isNew = function() {
                     return false;
@@ -784,19 +875,19 @@ var joliCreator = function() {
             }, this);
             return this;
         },
-        get: function(key) {
+        get : function(key) {
             return this[key];
         },
-        isChanged: function() {
+        isChanged : function() {
             if (this.isNew()) {
                 return false;
             }
 
-            return !((typeof this.id !== 'undefined') && joli.toQueryString(this._data) === joli.toQueryString(this._originalData));
+            return !(( typeof this.id !== 'undefined') && joli.toQueryString(this._data) === joli.toQueryString(this._originalData));
         },
-        save: function() {
+        save : function() {
             var data = {
-                data: this._data
+                data : this._data
             };
 
             if (this.isChanged()) {
@@ -828,11 +919,11 @@ var joliCreator = function() {
             };
             return true;
         },
-        set: function(key, value) {
+        set : function(key, value) {
             this[key] = value;
             this._data[key] = value;
         },
-        toArray: function() {
+        toArray : function() {
             var result = {};
 
             joli.each(this._options.table.getColumns(), function(colType, colName) {
@@ -844,16 +935,16 @@ var joliCreator = function() {
 
     joli.transaction = function(name) {
         this.data = {
-            commited: false
+            commited : false
         };
     };
 
     joli.transaction.prototype = {
-        begin: function() {
+        begin : function() {
             joli.connection.execute('BEGIN;');
         },
 
-        commit: function() {
+        commit : function() {
             if (this.data.commited) {
                 throw new Error('The transaction was already commited!');
             }
@@ -866,7 +957,6 @@ var joliCreator = function() {
     return joli;
 };
 
-
 /**
  * Global joli object for non-CommonJS usage:
  *  Ti.include('joli.js);
@@ -874,16 +964,14 @@ var joliCreator = function() {
  */
 var joli = joliCreator();
 
-
 /**
  * In case joli.js is loaded as a CommonJS module
  * var joli = require('joli').connect('your_database_name');
  * var joli = require('joli').connect('your_database_name', '/path/to/database.sqlite');
  */
-if (typeof exports === 'object' && exports) {
+if ( typeof exports === 'object' && exports) {
     exports.connect = function(database, file) {
         var joli = joliCreator();
-
         if (database) {
             if (file) {
                 joli.connection = new joli.Connection(database, file);
@@ -891,7 +979,13 @@ if (typeof exports === 'object' && exports) {
                 joli.connection = new joli.Connection(database);
             }
         }
-
+        return joli;
+    };
+    exports.secureconnect = function(database) {
+        var joli = joliCreator();
+        if (database) {
+            joli.connection = new joli.SecureConnection(database);
+        }
         return joli;
     };
 }
