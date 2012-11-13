@@ -1,6 +1,7 @@
 /*jslint nomen: true, sloppy : true, plusplus: true, vars: true, newcap: true*/
 var joliCreator = function() {
-    var db = require('db');
+    //db is a commonJS wrapper to the dmarie sql module
+    var db = require('3rdparty/libs/db');
     var keychain = require('com.0x82.key.chain');
     /**
      * creates a secure password for the database and stores it in the keystore
@@ -10,8 +11,8 @@ var joliCreator = function() {
                 var password;
                 if (database) {
                     password = keychain.getPasswordForService('database', database) || set(database);
-                    if(password) {
-                    return password;
+                    if (password) {
+                        return password;
                     }
                 }
                 return undefined;
@@ -24,8 +25,9 @@ var joliCreator = function() {
                         uuid = Titanium.Platform.createUUID() || "DEFAULT";
                         keychain.setPasswordForService(uuid, 'database', database);
                         password = uuid;
+                        uuid = null;
                     }
-                    return uuid;
+                    return password;
                 }
                 return undefined;
             };
@@ -439,15 +441,25 @@ var joliCreator = function() {
             }
         },
         initialize : function() {
-            joli.each(this.models, function(model, modelName) {
-                var columns = [];
+            /**
+             * issue #113 corrupt database
+             * put initialize in a try catch block and throw an error, returning true or false
+             */
+            try {
+                joli.each(this.models, function(model, modelName) {
+                    var columns = [];
 
-                joli.each(model.options.columns, function(type, name) {
-                    columns.push(name + ' ' + type);
+                    joli.each(model.options.columns, function(type, name) {
+                        columns.push(name + ' ' + type);
+                    });
+                    var query = 'CREATE TABLE IF NOT EXISTS ' + modelName + ' (' + columns.join(', ') + ')';
+                    joli.connection.execute(query);
                 });
-                var query = 'CREATE TABLE IF NOT EXISTS ' + modelName + ' (' + columns.join(', ') + ')';
-                joli.connection.execute(query);
-            });
+                return true;
+            } catch (ex) {
+                Ti.API.debug('joli initialize threw exception');
+                return false;
+            }
         },
         migrate : function(version, migrationCallback) {
             // create migration table
